@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>{% block title %}Painel do bot{% endblock %} · PXzx Store</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="top">
+      <a class="brand" href="{{ url_for('home') }}"><span class="mark" aria-hidden="true">P</span> PXzx Store</a>
+      {% if authenticated %}
+        <div class="account">
+          <span>{{ account }}</span>
+          <form action="{{ url_for('logout') }}" method="post">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="secondary" type="submit">Sair</button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+  </header>
+  <main class="shell">{% block main %}{% endblock %}</main>
+</body>
+</html>

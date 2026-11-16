@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block main %}
+  {% if not authenticated %}
+    <section class="welcome">
+      <div class="welcome-inner">
+        <div class="mark big-mark" aria-hidden="true">P</div>
+        <h1>Painel do bot</h1>
+        <p>Edite as mensagens de status que aparecem no Discord.</p>
+        {% if ready %}
+          <a class="button primary" href="{{ url_for('login') }}">Entrar com Discord</a>
+        {% elif needs_setup %}
+          <div class="notice" role="status">
+            <strong>Configuração pendente</strong>
+            <p>{{ error or "Adicione as variáveis de ambiente na Vercel e publique uma nova implantação." }}</p>
+          </div>
+        {% endif %}
+      </div>
+    </section>
+  {% else %}
+    <h1>Status do bot</h1>
+    <p class="lead">Escolha o texto que aparece no perfil do bot.</p>
+    {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+    {% if saved %}<p class="notice success" role="status">Status salvo. O Discord pode levar cerca de um minuto para atualizar.</p>{% endif %}
+    <div class="workspace">
+      <section class="card">
+        <h2>Mensagens de status</h2>
+        {% if available %}
+          <form action="{{ url_for('save_status') }}" method="post">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <label for="names">Uma frase por linha</label>
+            <textarea id="names" name="names" rows="5" required aria-describedby="rule">{{ status_text }}</textarea>
+            <p class="muted" id="rule">Até 5 frases, com no máximo 100 caracteres cada. O bot alterna entre elas.</p>
+            <button type="submit" class="primary">Salvar status</button>
+          </form>
+        {% endif %}
+      </section>
+      <aside class="card preview">
+        <h2>Prévia</h2>
+        <div class="presence">
+          <span class="mark" aria-hidden="true">P</span>
+          <div><strong>PXzx Vendas</strong><p id="preview-status">{{ first_status }}</p></div>
+        </div>
+      </aside>
+    </div>
+    <script defer src="/static/status.js"></script>
+  {% endif %}
+{% endblock %}

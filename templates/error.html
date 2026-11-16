@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block main %}
+  <section class="welcome">
+    <div class="welcome-inner">
+      <h1>Acesso ao painel</h1>
+      <p role="alert">{{ message }}</p>
+      <a class="button primary" href="{{ url_for('home') }}">Voltar ao painel</a>
+    </div>
+  </section>
+{% endblock %}

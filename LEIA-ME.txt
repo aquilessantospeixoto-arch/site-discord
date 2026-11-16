@@ -1,0 +1,65 @@
+Painel do PXzx Vendas na Vercel
+
+O painel permite editar as mensagens de status que o bot exibe no Discord.
+O login dá acesso apenas à conta informada em DASHBOARD_OWNER_ID.
+
+1. Extraia o ZIP e envie os arquivos extraídos para um repositório no GitHub.
+   Deixe app.py, requirements.txt, public e templates na raiz do repositório.
+   Importe o repositório em https://vercel.com/new e clique em Deploy.
+   A Vercel detecta o Flask a partir de requirements.txt.
+   Depois do deploy, copie o endereço de produção em Settings → Domains.
+
+2. Em https://discord.com/developers/applications, abra a aplicação do seu bot.
+   Em OAuth2 → Redirects, adicione o endereço da Vercel seguido de
+   /auth/discord/callback. Exemplo de endereço completo
+
+   https://seu-painel.vercel.app/auth/discord/callback
+
+   Salve o Redirect e copie o Client Secret da seção OAuth2.
+   Veja o Application ID em General Information.
+
+3. Na Vercel, abra Settings → Environment Variables. Adicione estas variáveis
+   em Production.
+
+   PUBLIC_BASE_URL        Endereço HTTPS do painel, como https://seu-painel.vercel.app
+   DISCORD_CLIENT_ID      Application ID da aplicação do Discord.
+   DISCORD_CLIENT_SECRET  Client Secret da seção OAuth2.
+   DASHBOARD_OWNER_ID     ID da sua conta do Discord. Use "Copiar ID do usuário".
+   BOT_MONGO_URI          URL completa do MongoDB usada pelo bot.
+   BOT_MONGO_DATABASE     Nome do banco usado pelo bot.
+   SESSION_SECRET         Chave aleatória usada para assinar as sessões do painel.
+
+   Confira a configuração do MongoDB no app do bot na Square Cloud ou em
+   configs/config_mongo.json. Use BOT_ID se o login estiver em uma aplicação
+   do Discord diferente da aplicação do bot.
+
+   Para gerar o valor de SESSION_SECRET, rode no PowerShell e copie a saída
+   diretamente para as variáveis da Vercel.
+
+   $bytes = New-Object byte[] 32
+   $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+   $rng.GetBytes($bytes)
+   [Convert]::ToBase64String($bytes)
+   $rng.Dispose()
+
+4. Na Vercel, abra Deployments. No menu do deploy de produção, clique em
+   Redeploy para aplicar as variáveis. Abra o endereço de produção, entre
+   com a conta do dono e teste salvar uma frase. A mensagem no Discord
+   pode levar cerca de um minuto para mudar.
+
+5. No app do bot na Square Cloud, abra commands/admin/painel.py. No botão
+   Acesse a Dashboard, coloque o endereço de produção da Vercel em url.
+   Exemplo
+
+   disnake.ui.Button(
+       label="Acesse a Dashboard",
+       style=disnake.ButtonStyle.link,
+       url="https://seu-painel.vercel.app",
+   ),
+
+   Salve, reinicie o bot e rode /painel no Discord para gerar o botão novo.
+
+Referências
+https://vercel.com/docs/frameworks/backend/flask
+https://vercel.com/docs/environment-variables
+https://docs.discord.com/developers/topics/oauth2
