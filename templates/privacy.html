@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Privacidade{% endblock %}
+{% block content %}
+<main class="container legal-page"><p class="kicker">/ TRANSPARÊNCIA</p><h1>Privacidade<span class="period">.</span></h1><p class="lead">A migração só acontece após uma autorização individual no Discord.</p>
+  <section class="legal-grid"><article><span>01</span><h2>O que coletamos</h2><p>Para processar sua autorização, guardamos seu ID público de usuário, nome exibido, destino escolhido, validade e um token de acesso criptografado. Não pedimos sua senha do Discord.</p></article>
+    <article><span>02</span><h2>Como usamos</h2><p>O token serve somente para solicitar sua entrada no servidor identificado como destino. O dono do painel precisa confirmar cada entrada manualmente.</p></article>
+    <article><span>03</span><h2>Quando removemos</h2><p>A autorização é apagada após seu uso, ao cancelar ou ao expirar. A validade máxima armazenada é de 24 horas; a limpeza automática depende do índice TTL do MongoDB.</p></article>
+    <article><span>04</span><h2>Seu controle</h2><p>Você pode usar a opção “Consultar minha conta” para cancelar uma autorização ativa antes de ela ser processada. Se preferir, simplesmente não conceda acesso.</p></article></section>
+  <a href="{{ url_for('migration.migrate') }}" class="button button-white">Voltar para migração <svg class="ico"><use href="#ico-arrow"/></svg></a>
+</main>
+{% endblock %}

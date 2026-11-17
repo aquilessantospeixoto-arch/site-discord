@@ -1,60 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Migração de servidor{% endblock %}
-{% block main %}
-  <div class="migration-layout">
-    <div>
-      <h1>Migração de servidor</h1>
-      {% if ready %}
-        <p class="lead">Autorize a equipe a adicionar sua conta ao servidor de destino.</p>
-        <dl class="server-path">
-          <div class="server">
-            <dt>Servidor de origem</dt>
-            <dd>{{ source_name }}</dd>
-            <dd class="server-id">{{ source_id }}</dd>
-          </div>
-          <div class="path-arrow" aria-hidden="true">→</div>
-          <div class="server destination">
-            <dt>Servidor de destino</dt>
-            <dd>{{ destination_name }}</dd>
-            <dd class="server-id">{{ destination_id }}</dd>
-          </div>
-        </dl>
-        <p class="muted"><a href="https://discord.com/channels/{{ source_id }}">Fale com a equipe no servidor de origem</a></p>
-      {% endif %}
+{% block title %}Migrar servidor{% endblock %}
+{% block content %}
+<main class="internal-page container">
+  <div class="back-link"><a href="{{ url_for('index') }}">← Voltar ao início</a><span> / PORTAL DE MIGRAÇÃO</span></div>
+  <div class="page-header"><div><div class="eyebrow"><span class="pulse-dot"></span> MIGRAÇÃO DE COMUNIDADE</div><h1>Seu novo<br><em>destino.</em></h1><p>Confira os servidores e autorize sua entrada. Você tem o controle da decisão.</p></div><div class="header-stamp">PXZX<br><span>EST. 2026</span></div></div>
+  {% if notice %}<div class="notice notice-soft" role="status"><svg class="ico"><use href="#ico-info"/></svg><p>{{ notice }}</p></div>{% endif %}
+  {% if not ready %}
+  <div class="empty-state"><div class="empty-icon"><svg class="ico"><use href="#ico-lock"/></svg></div><h2>Ainda não está disponível</h2><p>A equipe está finalizando as configurações de migração. Tente novamente mais tarde.</p><a href="{{ url_for('index') }}" class="button button-outline">Voltar ao início</a></div>
+  {% else %}
+  <div class="migration-grid">
+    <div class="migration-left">
+      <div class="panel-box"><div class="panel-caption"><span>01 / DESTINO</span><span>SERVIDORES</span></div>
+        <div class="guild-card"><div class="guild-symbol">01</div><div><small>ORIGEM / SERVIDOR ATUAL</small><strong>{{ source }}</strong><span class="mono">ID {{ source_id }}</span></div></div>
+        <div class="connection"><span></span><div class="connection-arrow"><svg class="ico"><use href="#ico-arrow"/></svg></div><span></span></div>
+        <div class="guild-card guild-destination"><div class="guild-symbol guild-symbol-white">02</div><div><small>DESTINO / NOVO SERVIDOR</small><strong>{{ destination }}</strong><span class="mono">ID {{ destination_id }}</span></div></div>
+      </div>
+      <div class="info-row"><svg class="ico"><use href="#ico-shield"/></svg><p>As autorizações são criptografadas e expiram em até 24 horas. Você pode cancelá-las antes do processamento.</p></div>
     </div>
-
-    <section class="card migration-actions">
-      {% if not ready %}
-        <h2>Migração indisponível</h2>
-        <p>Peça à equipe para conferir a configuração do site.</p>
+    <div class="migration-right"><div class="panel-box action-card"><div class="panel-caption"><span>02 / AUTORIZAÇÃO</span><span><span class="mini-dot"></span> DISCORD</span></div>
+      {% if consent %}
+        <div class="action-icon"><svg class="ico"><use href="#ico-check"/></svg></div><h2>Autorizado.</h2><p>Você já autorizou a entrada no servidor <strong>{{ destination }}</strong>. A equipe poderá concluir sua migração até a expiração.</p>
+        <div class="expiration"><svg class="ico"><use href="#ico-clock"/></svg> Válido até {{ consent.expires_at.strftime('%d/%m/%Y às %H:%M UTC') }}</div>
+        <form method="post" action="{{ url_for('migration.cancel') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="button button-outline button-full">Cancelar autorização</button></form>
       {% else %}
-        {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
-        {% if authorization %}
-          <h2>Autorização ativa</h2>
-          <p>A equipe pode adicionar sua conta até {{ authorization.expires_at.strftime('%d/%m/%Y às %H:%M UTC') }}.</p>
-          <form method="post" action="{{ url_for('migration.cancel') }}">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <button class="secondary" type="submit">Cancelar autorização</button>
-          </form>
-        {% else %}
-          <h2>Autorizar entrada</h2>
-          <form method="post" action="{{ url_for('migration.authorize') }}">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <label class="consent">
-              <input type="checkbox" name="consent" value="yes" required>
-              <span>Autorizo a equipe a adicionar minha conta ao servidor <strong>{{ destination_name }}</strong>.</span>
-            </label>
-            <p class="muted">Guardamos o ID da conta, seu nome no Discord e uma autorização criptografada até sua entrada, o cancelamento ou o fim da validade.</p>
-            <button class="primary" type="submit">Autorizar pelo Discord</button>
-          </form>
-          {% if not identified %}
-            <form class="migration-review" method="post" action="{{ url_for('migration.identify') }}">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button class="secondary" type="submit">Consultar ou cancelar</button>
-            </form>
-          {% endif %}
-        {% endif %}
+        <div class="action-icon"><svg class="ico"><use href="#ico-key"/></svg></div><h2>É sua decisão.</h2><p>Ao continuar, você será direcionado ao Discord para conferir e autorizar a entrada da sua conta.</p>
+        <form method="post" action="{{ url_for('migration.authorize') }}" class="consent-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label class="consent-checkbox"><input type="checkbox" name="consent" value="yes" required><span class="checkbox-indicator"><svg class="ico"><use href="#ico-check"/></svg></span><span>Autorizo a PXzx Store a adicionar minha conta ao servidor <strong>{{ destination }}</strong>.</span></label>
+          <button type="submit" class="button button-white button-full">Autorizar com Discord <svg class="ico"><use href="#ico-arrow-up-right"/></svg></button>
+        </form>
+        {% if not identified %}<form method="post" action="{{ url_for('migration.review') }}" class="review-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="text-button" type="submit">Já autorizei? Consultar minha conta <svg class="ico"><use href="#ico-arrow"/></svg></button></form>{% endif %}
       {% endif %}
-    </section>
+      <div class="action-footnote"><svg class="ico"><use href="#ico-lock"/></svg> A autorização acontece na página oficial do Discord.</div>
+    </div></div>
   </div>
+  {% endif %}
+</main>
 {% endblock %}

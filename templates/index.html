@@ -1,55 +1,41 @@
 {% extends "base.html" %}
-{% block main %}
-  {% if not authenticated %}
-    <section class="welcome">
-      <div class="welcome-inner">
-        <div class="mark big-mark" aria-hidden="true">P</div>
-        <h1>Painel do bot</h1>
-        <p>Gerencie o status do bot e a migração de membros do Discord.</p>
-        {% if ready %}
-          <div class="welcome-actions">
-            <a class="button primary" href="{{ url_for('login') }}">Entrar com Discord</a>
-            <a class="button secondary" href="{{ url_for('migration.public_page') }}">Migrar para o novo servidor</a>
-          </div>
-        {% elif needs_setup %}
-          <div class="notice" role="status">
-            <strong>Configuração pendente</strong>
-            <p>{{ error or "Adicione as variáveis de ambiente na Vercel e publique uma nova implantação." }}</p>
-          </div>
-        {% endif %}
+{% block title %}Início{% endblock %}
+{% block content %}
+<main>
+  <section class="hero container">
+    <div class="hero-copy">
+      <div class="eyebrow"><span class="pulse-dot"></span> PXZX STORE / DISCORD ECOSYSTEM <span class="eyebrow-line"></span> 2026</div>
+      <h1>O próximo<br><em>capítulo</em> começa<br>aqui<span class="period">.</span></h1>
+      <p class="hero-description">Uma nova casa para a sua comunidade. Migre sua conta para o novo servidor de forma simples, segura e com a sua autorização.</p>
+      <div class="hero-actions">
+        <a class="button button-white button-large" href="{{ url_for('migration.migrate') }}">Começar migração <svg class="ico"><use href="#ico-arrow-up-right"/></svg></a>
+        <a class="button button-ghost button-large" href="#como-funciona">Como funciona <svg class="ico"><use href="#ico-arrow"/></svg></a>
       </div>
-    </section>
-  {% else %}
-    <div class="section-heading">
-      <div>
-        <h1>Status do bot</h1>
-        <p class="lead">Escolha o texto que aparece no perfil do bot.</p>
+      <div class="hero-trust"><div class="trust-icon"><svg class="ico"><use href="#ico-shield"/></svg></div><span>Somente contas que autorizarem<br>poderão ser migradas.</span></div>
+    </div>
+    <div class="hero-visual" aria-label="Prévia da área de migração">
+      <div class="visual-orbit visual-orbit-one"></div><div class="visual-orbit visual-orbit-two"></div>
+      <div class="visual-card">
+        <div class="visual-top"><span>PXZX / MIGRATION</span><span class="online"><i></i> PORTAL ATIVO</span></div>
+        <div class="visual-big-logo">P<span>X</span><small>zx.</small></div>
+        <div class="visual-divider"></div>
+        <div class="visual-stats"><span>TRANSFERÊNCIA DE COMUNIDADE</span><strong>01 <span>/</span> 03</strong></div>
+        <div class="visual-progress"><span></span></div>
+        <div class="visual-bottom"><span><svg class="ico"><use href="#ico-lock"/></svg> Autorização individual</span><span>SECURE CONNECTION</span></div>
       </div>
-      <a class="button secondary" href="{{ url_for('migration.admin_page') }}">Migração de membros</a>
+      <div class="floating-tag floating-top"><svg class="ico"><use href="#ico-check"/></svg> SEGURO & TRANSPARENTE</div>
+      <div class="floating-tag floating-bottom">NO. 001 <span>—</span> PXZX NETWORK</div>
     </div>
-    {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
-    {% if saved %}<p class="notice success" role="status">Status salvo. O Discord pode levar cerca de um minuto para atualizar.</p>{% endif %}
-    <div class="workspace">
-      <section class="card">
-        <h2>Mensagens de status</h2>
-        {% if available %}
-          <form action="{{ url_for('save_status') }}" method="post">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <label for="names">Uma frase por linha</label>
-            <textarea id="names" name="names" rows="5" required aria-describedby="rule">{{ status_text }}</textarea>
-            <p class="muted" id="rule">Até 5 frases, com no máximo 100 caracteres cada. O bot alterna entre elas.</p>
-            <button type="submit" class="primary">Salvar status</button>
-          </form>
-        {% endif %}
-      </section>
-      <aside class="card preview">
-        <h2>Prévia</h2>
-        <div class="presence">
-          <span class="mark" aria-hidden="true">P</span>
-          <div><strong>PXzx Vendas</strong><p id="preview-status">{{ first_status }}</p></div>
-        </div>
-      </aside>
+  </section>
+  <div class="container"><div class="section-rule"><span>DESENVOLVIDO PARA SUA COMUNIDADE</span><span>↓ EXPLORE</span></div></div>
+  <section class="steps container" id="como-funciona">
+    <div class="section-header"><div><p class="kicker">/ PROCESSO</p><h2>Simples do início<br>ao destino.</h2></div><p>Três passos. Sem complicação. Você decide se deseja participar.</p></div>
+    <div class="steps-grid">
+      <article class="step"><div class="step-meta"><span>01</span><svg class="ico"><use href="#ico-users"/></svg></div><h3>Confira o destino</h3><p>Veja o nome do servidor antigo e do novo antes de continuar.</p><div class="step-bottom">VERIFICAR <svg class="ico"><use href="#ico-arrow-up-right"/></svg></div></article>
+      <article class="step"><div class="step-meta"><span>02</span><svg class="ico"><use href="#ico-shield"/></svg></div><h3>Autorize pelo Discord</h3><p>Confirme sua identidade e conceda permissão de entrada apenas se concordar.</p><div class="step-bottom">AUTORIZAR <svg class="ico"><use href="#ico-arrow-up-right"/></svg></div></article>
+      <article class="step"><div class="step-meta"><span>03</span><svg class="ico"><use href="#ico-check"/></svg></div><h3>Aguarde a equipe</h3><p>A equipe adiciona a conta autorizada. Você pode cancelar antes da entrada.</p><div class="step-bottom">CONCLUIR <svg class="ico"><use href="#ico-arrow-up-right"/></svg></div></article>
     </div>
-    <script defer src="/static/status.js"></script>
-  {% endif %}
+  </section>
+  <section class="cta-section container"><div class="cta-panel"><div><p class="kicker">/ PRONTO PARA COMEÇAR?</p><h2>Seu lugar na<br>próxima fase.</h2></div><a href="{{ url_for('migration.migrate') }}" class="button button-white button-large">Abrir migração <svg class="ico"><use href="#ico-arrow-up-right"/></svg></a><div class="cta-decoration">PX.</div></div></section>
+</main>
 {% endblock %}

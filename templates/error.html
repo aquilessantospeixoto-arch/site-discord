@@ -1,10 +1,5 @@
 {% extends "base.html" %}
-{% block main %}
-  <section class="welcome">
-    <div class="welcome-inner">
-      <h1>Acesso ao painel</h1>
-      <p role="alert">{{ message }}</p>
-      <a class="button primary" href="{{ url_for('home') }}">Voltar ao painel</a>
-    </div>
-  </section>
+{% block title %}Erro{% endblock %}
+{% block content %}
+<main class="container error-page"><div class="error-numeral">!</div><p class="kicker">/ PXZX STORE</p><h1>{{ error_title }}</h1><p>{{ message }}</p><div class="error-actions"><a href="{{ url_for('index') }}" class="button button-white">Voltar ao início <svg class="ico"><use href="#ico-arrow"/></svg></a><a href="{{ url_for('migration.migrate') }}" class="button button-outline">Ir para migração</a></div></main>
 {% endblock %}

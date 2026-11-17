@@ -1,0 +1,45 @@
+PXzx Store — NOVO SITE PRETO & BRANCO
+====================================
+
+VOCÊ JÁ TEM AS VARIÁVEIS NA VERCEL?
+Se já configurou todas, NÃO precisa criar tokens novos para testar.
+
+COMO SUBSTITUIR O SITE ANTIGO
+
+1. Extraia este ZIP no computador.
+2. Abra o seu repositório GitHub usado na Vercel.
+3. Apague os arquivos antigos do site (app.py, migration.py,
+   templates/, public/ etc.) e envie os arquivos extraídos no lugar.
+4. Faça Commit changes. Caso o GitHub esteja conectado à Vercel,
+   um novo deployment será iniciado automaticamente.
+5. Na Vercel, confira se seu domínio e as variáveis continuam ligados
+   ao projeto publicado em Production.
+6. Confira o Redirect no Discord Developer Portal:
+   https://m-igra-ao.vercel.app/auth/discord/callback
+   (se este ainda for seu domínio de produção).
+7. Abra https://m-igra-ao.vercel.app/ e teste.
+
+NOVOS ENDEREÇOS
+
+/                   Site principal
+/migrar             Página para membros autorizarem a migração
+/login              Login do dono com Discord
+/painel             Editor de status + informações gerais
+/migracao/admin     Lista de autorizações com botão Adicionar
+/privacidade        Detalhes de privacidade
+/health             Estado básico de inicialização
+
+SE A MIGRAÇÃO NÃO APARECER
+
+- Verifique se as variáveis estão marcadas para Production.
+- Faça redeploy depois de alterar as variáveis.
+- Use /login com a conta do dono definida em DASHBOARD_OWNER_ID.
+- Em /migracao/admin o site informa quais NOMES de variáveis estão
+  faltando/inválidos sem mostrar o token nem a senha.
+- MIGRATION_ENCRYPTION_KEY precisa ser uma chave Fernet, e NÃO uma senha comum.
+- Se o MongoDB não permitir conexão com a Vercel, a configuração
+  pode parecer válida, mas as operações falharão até ajustar o Atlas.
+
+NÃO coloque seu token nem seu arquivo .env no GitHub.
+
+Leia README.md para a configuração e detalhes.

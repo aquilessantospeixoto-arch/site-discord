@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Painel administrativo{% endblock %}
+{% block content %}
+<main class="container dashboard-shell">
+  {% include "_sidebar.html" %}
+  <div class="dashboard-content">
+    <div class="dashboard-title"><div><p class="kicker">/ PAINEL ADMINISTRATIVO</p><h1>Visão geral<span class="period">.</span></h1><p>Bem-vindo de volta, {{ account }}. Gerencie tudo em um só lugar.</p></div><span class="dash-chip"><span class="mini-dot"></span> PAINEL PRIVADO</span></div>
+    {% if saved %}<div class="notice notice-success" role="status"><svg class="ico"><use href="#ico-check"/></svg><p>As mensagens do bot foram salvas no MongoDB.</p></div>{% endif %}
+    {% if error %}<div class="notice notice-soft" role="alert"><svg class="ico"><use href="#ico-info"/></svg><p>{{ error }}</p></div>{% endif %}
+    <div class="metrics-grid"><div class="metric-card"><span>MEMBROS PENDENTES</span><strong>{{ pending if pending is not none else '—' }}</strong><small>Contas que autorizaram a migração</small><svg class="ico"><use href="#ico-users"/></svg></div>
+      <div class="metric-card"><span>STATUS DA MIGRAÇÃO</span><strong class="metric-word">{{ 'Pronta' if migration_ready else 'Pendente' }}</strong><small>{{ 'Autorizações habilitadas' if migration_ready else 'Configuração incompleta' }}</small><svg class="ico"><use href="#ico-shield"/></svg></div>
+      <div class="metric-card"><span>MENSAGENS DO BOT</span><strong>{{ names|length }}</strong><small>Frases configuradas no MongoDB</small><svg class="ico"><use href="#ico-grid"/></svg></div>
+    </div>
+    <div class="dashboard-columns"><div class="panel-box dashboard-main-card"><div class="panel-caption"><span>CONFIGURAÇÃO DO BOT</span><span>01 / STATUS</span></div><h2>Editar presença</h2><p>Uma mensagem por linha. Até 5 mensagens com 100 caracteres cada.</p>
+        <form method="post" action="{{ url_for('save_status') }}" class="status-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label for="status-names">FRASES DO STATUS</label><textarea id="status-names" name="names" rows="6" maxlength="540" placeholder="PXzx Store | Online&#10;Acesse a comunidade" required data-status-input>{{ names|join('\n') }}</textarea><div class="form-foot"><small>O bot pode precisar de alguns instantes para refletir a alteração.</small><button type="submit" class="button button-white">Salvar alterações <svg class="ico"><use href="#ico-check"/></svg></button></div></form>
+      </div>
+      <div class="right-column"><div class="panel-box mini-preview"><div class="panel-caption"><span>PRÉ-VISUALIZAÇÃO</span><span><svg class="ico"><use href="#ico-eye"/></svg></span></div><div class="discord-profile"><div class="discord-pic">PX</div><div><strong>PXzx Store</strong><span>Bot • Em atividade</span></div></div><div class="discord-presence"><span class="status-dot"></span><span id="status-preview">{{ names[0] if names else 'Sem status definido' }}</span></div></div>
+      <a href="{{ url_for('migration.admin') }}" class="panel-box quick-card"><span>GERENCIAR MIGRAÇÃO</span><h3>Autorizações de membros</h3><p>Visualize as contas autorizadas e adicione-as ao destino.</p><div class="quick-arrow"><svg class="ico"><use href="#ico-arrow-up-right"/></svg></div></a></div>
+    </div>
+    {% if config_errors %}<section class="settings-card"><div><svg class="ico"><use href="#ico-info"/></svg><h3>Configuração do projeto</h3></div><p>Confira os itens abaixo em Vercel → Settings → Environment Variables. Os valores secretos não aparecem aqui.</p><ul>{% for item in config_errors %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
+  </div>
+</main>
+{% endblock %}

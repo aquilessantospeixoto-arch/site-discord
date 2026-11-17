@@ -1,51 +1,27 @@
 {% extends "base.html" %}
-{% block title %}Migração de membros{% endblock %}
-{% block main %}
-  <div class="section-heading">
-    <div>
-      <h1>Migração de membros</h1>
-      {% if ready %}<p class="lead">{{ source_name }} → {{ destination_name }}</p>{% endif %}
-    </div>
-    {% if ready %}<a class="button secondary" href="{{ url_for('migration.public_page') }}">Abrir página dos membros</a>{% endif %}
-  </div>
-  {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
-  {% if not ready %}
-    <div class="notice" role="alert">
-      <strong>A migração ainda não está pronta. Confira:</strong>
-      <ul>
-        {% for problem in config_problems %}<li>{{ problem }}</li>{% endfor %}
-      </ul>
-      <p>Depois de corrigir as variáveis de Production, faça um novo deploy na Vercel.</p>
-    </div>
-  {% else %}
-    <section class="card member-card">
-      <h2>Membros que autorizaram a entrada</h2>
-      {% if entries %}
-        <ul class="member-list">
-          {% for member in entries %}
-            <li>
-              <div class="member-details">
-                <strong>{{ member.name }}</strong>
-                <small>{{ member.user_id }} · Até {{ member.expires_at.strftime('%d/%m às %H:%M UTC') }}</small>
-              </div>
-              <form method="post" action="{{ url_for('migration.add_member') }}">
-                <input type="hidden" name="csrf" value="{{ csrf }}">
-                <input type="hidden" name="user_id" value="{{ member.user_id }}">
-                <button class="primary" type="submit">Adicionar ao destino</button>
-              </form>
-            </li>
+{% block title %}Migração — Painel{% endblock %}
+{% block content %}
+<main class="container dashboard-shell">
+  {% include "_sidebar.html" %}
+  <div class="dashboard-content">
+    <div class="dashboard-title"><div><p class="kicker">/ GERENCIAMENTO</p><h1>Migração<span class="period">.</span></h1><p>Autorizações de entrada recebidas pelo Discord.</p></div><a href="{{ url_for('migration.migrate') }}" class="button button-outline">Ver página pública <svg class="ico"><use href="#ico-arrow-up-right"/></svg></a></div>
+    {% if notice %}<div class="notice notice-soft" role="status"><svg class="ico"><use href="#ico-info"/></svg><p>{{ notice }}</p></div>{% endif %}
+    {% if not ready %}
+      <section class="panel-box config-panel"><div class="action-icon"><svg class="ico"><use href="#ico-lock"/></svg></div><p class="kicker">CONFIGURAÇÃO PENDENTE</p><h2>Falta pouco para ativar.</h2><p>As variáveis abaixo estão ausentes ou inválidas. Corrija na Vercel, marque <strong>Production</strong> e faça um novo deploy.</p><ul class="config-list">{% for issue in config_errors %}<li><svg class="ico"><use href="#ico-info"/></svg>{{ issue }}</li>{% endfor %}</ul><small>Nenhum token ou senha é exibido nesta lista.</small></section>
+    {% else %}
+      <div class="migration-summary"><div><span class="summary-label">FLUXO ATIVO</span><div class="summary-path"><strong>{{ source }}</strong><svg class="ico"><use href="#ico-arrow"/></svg><strong>{{ destination }}</strong></div></div><div class="summary-count"><span>AUTORIZAÇÕES PENDENTES</span><strong>{{ pending if pending is not none else '—' }}</strong></div></div>
+      <section class="panel-box member-section"><div class="panel-caption"><span>MEMBROS AUTORIZADOS</span><span>02 / PROCESSAR</span></div><div class="member-title"><div><h2>Fila de migração</h2><p>Somente membros que autorizaram no Discord aparecem aqui.</p></div><button type="button" class="button button-outline button-small" data-copy="{{ request.url_root.rstrip('/') }}/migrar"><svg class="ico"><use href="#ico-copy"/></svg> Copiar link</button></div>
+      {% if people %}
+        <div class="table-wrap"><table class="member-table"><thead><tr><th>CONTA</th><th>ID DO DISCORD</th><th>VALIDADE (UTC)</th><th>AÇÃO</th></tr></thead><tbody>
+          {% for person in people %}
+          <tr><td><div class="member-name"><span class="small-avatar">{{ person.name[0]|upper if person.name else 'D' }}</span><strong>{{ person.name }}</strong></div></td><td class="mono">{{ person.user_id }}</td><td>{{ person.expires_at.strftime('%d/%m/%Y %H:%M') }}</td><td><form method="post" action="{{ url_for('migration.add') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="user_id" value="{{ person.user_id }}"><button type="submit" class="button button-white button-small">Adicionar <svg class="ico"><use href="#ico-arrow-up-right"/></svg></button></form></td></tr>
           {% endfor %}
-        </ul>
-      {% elif not notice %}
-        <p>Envie a página de migração aos membros do servidor de origem para receber autorizações.</p>
-      {% endif %}
-      {% if cursor or next_cursor %}
-        <nav class="pagination" aria-label="Páginas de membros">
-          {% if cursor %}<a class="button secondary" href="{{ url_for('migration.admin_page') }}">Primeira página</a>{% endif %}
-          {% if next_cursor %}<a class="button secondary" href="{{ url_for('migration.admin_page', depois=next_cursor) }}">Próxima página</a>{% endif %}
-        </nav>
-      {% endif %}
-    </section>
-  {% endif %}
-  <p class="muted"><a href="{{ url_for('home') }}">Voltar ao painel</a></p>
+        </tbody></table></div>
+        {% if next_cursor or cursor %}<div class="pagination">{% if cursor %}<a href="{{ url_for('migration.admin') }}" class="button button-outline">Primeira página</a>{% endif %}{% if next_cursor %}<a href="{{ url_for('migration.admin', depois=next_cursor) }}" class="button button-outline">Próxima página <svg class="ico"><use href="#ico-arrow"/></svg></a>{% endif %}</div>{% endif %}
+      {% else %}<div class="empty-members"><span class="empty-members-icon"><svg class="ico"><use href="#ico-users"/></svg></span><h3>Nenhuma autorização pendente</h3><p>Compartilhe a página /migrar com os membros do servidor de origem.</p><button type="button" class="button button-outline" data-copy="{{ request.url_root.rstrip('/') }}/migrar">Copiar link da migração <svg class="ico"><use href="#ico-copy"/></svg></button></div>{% endif %}
+      </section>
+      <div class="admin-footnote"><svg class="ico"><use href="#ico-shield"/></svg> Autorizações são removidas depois da entrada, do cancelamento ou da expiração no banco.</div>
+    {% endif %}
+  </div>
+</main>
 {% endblock %}

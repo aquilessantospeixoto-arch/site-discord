@@ -1,0 +1,21 @@
+<aside class="dashboard-sidebar">
+  <div class="sidebar-heading">WORKSPACE <span>01</span></div>
+  <a href="{{ url_for('panel') }}" class="side-link {% if section == 'overview' %}selected{% endif %}">
+    <svg class="ico"><use href="#ico-grid"/></svg><span>Visão geral</span>
+  </a>
+  <a href="{{ url_for('migration.admin') }}" class="side-link {% if section == 'migration' %}selected{% endif %}">
+    <svg class="ico"><use href="#ico-users"/></svg><span>Migração</span>
+  </a>
+  <div class="sidebar-heading secondary-heading">ACESSO RÁPIDO</div>
+  <a href="{{ url_for('migration.migrate') }}" class="side-link">
+    <svg class="ico"><use href="#ico-arrow-up-right"/></svg><span>Página de migração</span>
+  </a>
+  <div class="sidebar-bottom">
+    <span class="avatar-circle">{{ account[0]|upper if account else 'P' }}</span>
+    <div class="sidebar-profile"><strong>{{ account or 'Proprietário' }}</strong><small>Administrador</small></div>
+    <form method="POST" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="icon-btn" type="submit" title="Sair" aria-label="Sair do painel"><svg class="ico"><use href="#ico-power"/></svg></button>
+    </form>
+  </div>
+</aside>

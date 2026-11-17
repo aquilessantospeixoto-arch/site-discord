@@ -1,28 +1,64 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090909">
   <meta name="color-scheme" content="dark">
-  <title>{% block title %}Painel do bot{% endblock %} · PXzx Store</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <meta name="description" content="PXzx Store — portal para migração de membros e painel do Discord.">
+  <title>{% block title %}PXzx Store{% endblock %} | PXzx Store</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/site.js" defer></script>
 </head>
 <body>
-  <header class="masthead">
-    <div class="top">
-      <a class="brand" href="{{ url_for('home') }}"><span class="mark" aria-hidden="true">P</span> PXzx Store</a>
-      {% if authenticated %}
-        <div class="account">
-          <span>{{ account }}</span>
-          <form action="{{ url_for('logout') }}" method="post">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <button class="secondary" type="submit">Sair</button>
-          </form>
-        </div>
-      {% endif %}
+  <svg class="svg-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="ico-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-7-7 7 7-7 7"/></symbol>
+    <symbol id="ico-arrow-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
+    <symbol id="ico-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="ico-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m14-14.87a4 4 0 0 1 0 7.75M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></symbol>
+    <symbol id="ico-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+    <symbol id="ico-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="ico-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="ico-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
+    <symbol id="ico-power" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M6.17 5.17a9 9 0 1 0 11.66 0"/></symbol>
+    <symbol id="ico-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></symbol>
+    <symbol id="ico-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="ico-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m11.5 11.5 9-9L22 4l-2 2 2 2-3 3-2-2-2 2"/></symbol>
+    <symbol id="ico-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="ico-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  </svg>
+  <header class="site-header">
+    <div class="container header-layout">
+      <a class="logo" href="{{ url_for('index') }}" aria-label="PXzx Store, página inicial">
+        <span class="logo-mark" aria-hidden="true">P<span class="logo-x">X</span></span>
+        <span class="logo-text">PXzx <strong>Store</strong><span class="logo-mini">MEMBER PORTAL</span></span>
+      </a>
+      <nav class="header-nav" aria-label="Principal">
+        <a href="{{ url_for('index') }}" class="{% if request.path == '/' %}active{% endif %}">Início</a>
+        <a href="{{ url_for('migration.migrate') }}" class="{% if request.path.startswith('/migrar') %}active{% endif %}">Migrar</a>
+        <a href="{{ url_for('privacy') }}">Privacidade</a>
+      </nav>
+      <div class="header-actions">
+        {% if is_owner %}<a href="{{ url_for('panel') }}" class="button button-outline button-small"><svg class="ico"><use href="#ico-grid"/></svg> Painel</a>
+        {% else %}<a href="{{ url_for('login') }}" class="button button-outline button-small"><svg class="ico"><use href="#ico-lock"/></svg> Área do dono</a>{% endif %}
+        <button class="menu-toggle" aria-label="Abrir menu" aria-expanded="false" data-menu-toggle><svg class="ico"><use href="#ico-menu"/></svg></button>
+      </div>
     </div>
+    <nav class="mobile-nav" id="mobile-nav" aria-label="Menu mobile" hidden>
+      <a href="{{ url_for('index') }}">Início</a><a href="{{ url_for('migration.migrate') }}">Migrar</a>
+      <a href="{{ url_for('privacy') }}">Privacidade</a>
+      <a href="{{ url_for('panel') if is_owner else url_for('login') }}">Painel</a>
+    </nav>
   </header>
-  <main class="shell">{% block main %}{% endblock %}</main>
+  {% block content %}{% endblock %}
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <span class="footer-logo">PXzx<span>®</span></span>
+      <span>Discord não é responsável por este site.</span>
+      <span>© 2026 PXzx Store · <a href="{{ url_for('privacy') }}">Privacidade</a></span>
+    </div>
+  </footer>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>

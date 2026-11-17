@@ -1,6 +1,12 @@
-from base64 import urlsafe_b64encode
+"""PXzx Store — painel do Discord e migração de membros consentida.
+
+Entrada Flask para Vercel: `app` no nível superior.
+"""
+from __future__ import annotations
+
 from datetime import timedelta
 from hashlib import sha256
+from base64 import urlsafe_b64encode
 import os
 import secrets
 from time import time
@@ -10,237 +16,264 @@ from flask import Flask, abort, redirect, render_template, request, session, url
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 import requests
-from migration import register_migration
 
+from migration import setup_migration
 
-DISCORD = "https://discord.com"
-STATUS_DOCUMENT = {"_id": "custom_status"}
-REQUIRED = (
-    "PUBLIC_BASE_URL",
-    "DISCORD_CLIENT_ID",
-    "DISCORD_CLIENT_SECRET",
-    "DASHBOARD_OWNER_ID",
-    "BOT_MONGO_URI",
-    "BOT_MONGO_DATABASE",
+DISCORD_ORIGIN = "https://discord.com"
+DISCORD_API = f"{DISCORD_ORIGIN}/api/v10"
+CORE_KEYS = (
+    "PUBLIC_BASE_URL", "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
+    "DASHBOARD_OWNER_ID", "BOT_MONGO_URI", "BOT_MONGO_DATABASE",
     "SESSION_SECRET",
 )
 
 
-def create_app(settings=None):
-    settings = os.environ if settings is None else settings
-    values = {key: settings.get(key, "").strip() for key in REQUIRED}
+def is_snowflake(value: str) -> bool:
+    return (isinstance(value, str) and value.isascii() and value.isdecimal()
+            and 1 <= len(value) <= 20 and value[0] != "0" and int(value) < 2**64)
+
+
+def create_app(env=None):
+    env = os.environ if env is None else env
+    v = {key: str(env.get(key, "")).strip() for key in CORE_KEYS}
+    errors = [f"{key}: variável não configurada." for key, value in v.items() if not value]
+    base = v["PUBLIC_BASE_URL"].rstrip("/")
+    try:
+        url = urlsplit(base)
+        if v["PUBLIC_BASE_URL"] and (url.scheme != "https" or not url.netloc or
+              url.username or url.password or url.path or url.query or url.fragment):
+            errors.append("PUBLIC_BASE_URL: informe apenas o domínio HTTPS, sem / no final.")
+    except ValueError:
+        errors.append("PUBLIC_BASE_URL: endereço inválido.")
+    for name in ("DISCORD_CLIENT_ID", "DASHBOARD_OWNER_ID"):
+        if v[name] and not is_snowflake(v[name]):
+            errors.append(f"{name}: informe um ID numérico do Discord.")
+    bot_id = str(env.get("BOT_ID", "")).strip() or v["DISCORD_CLIENT_ID"]
+    if bot_id and not is_snowflake(bot_id):
+        errors.append("BOT_ID: informe o ID numérico do bot.")
+    if v["SESSION_SECRET"] and len(v["SESSION_SECRET"]) < 32:
+        errors.append("SESSION_SECRET: gere uma chave de pelo menos 32 caracteres.")
+
     app = Flask(__name__, static_folder=None)
+    # Quando não configurado, uma chave temporária só permite mostrar a página de instalação.
     app.config.update(
-        SECRET_KEY=values["SESSION_SECRET"] or None,
-        SESSION_COOKIE_NAME="__Host-pxzx_dashboard",
-        SESSION_COOKIE_SECURE=True,
+        SECRET_KEY=v["SESSION_SECRET"] if len(v["SESSION_SECRET"]) >= 32 else secrets.token_urlsafe(48),
+        SESSION_COOKIE_NAME="__Host-pxzx_session",
         SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SECURE=True,
         SESSION_COOKIE_SAMESITE="Lax",
         PERMANENT_SESSION_LIFETIME=timedelta(hours=4),
         SESSION_REFRESH_EACH_REQUEST=False,
-        MAX_CONTENT_LENGTH=8192,
+        MAX_CONTENT_LENGTH=16_384,
     )
 
-    missing = [key for key, value in values.items() if not value]
-    base_url = values["PUBLIC_BASE_URL"].rstrip("/")
-    bot_id = settings.get("BOT_ID", "").strip() or values["DISCORD_CLIENT_ID"]
-    owner_id = values["DASHBOARD_OWNER_ID"]
-    invalid = ""
-    collection = None
-    database = None
-    if not missing:
+    db = None
+    status_collection = None
+    if v["BOT_MONGO_URI"] and v["BOT_MONGO_DATABASE"]:
         try:
-            base = urlsplit(base_url)
-            if (base.scheme != "https" or not base.hostname or base.username is not None
-                    or base.path or base.query or base.fragment):
-                raise ValueError("PUBLIC_BASE_URL precisa ser o endereço HTTPS do painel.")
-            if any(not value.isascii() or not value.isdecimal()
-                   for value in (bot_id, owner_id, values["DISCORD_CLIENT_ID"])):
-                raise ValueError("Confira os IDs do Discord nas variáveis de ambiente.")
-            if len(values["SESSION_SECRET"]) < 32:
-                raise ValueError("SESSION_SECRET precisa ter pelo menos 32 caracteres.")
-            client = MongoClient(values["BOT_MONGO_URI"], connect=False, serverSelectionTimeoutMS=4500)
-            database = client[values["BOT_MONGO_DATABASE"]]
-            collection = database[bot_id]
-        except ValueError as exc:
-            # Evita enviar mensagens de configuração que possam conter segredos.
-            known = (
-                "PUBLIC_BASE_URL precisa ser o endereço HTTPS do painel.",
-                "Confira os IDs do Discord nas variáveis de ambiente.",
-                "SESSION_SECRET precisa ter pelo menos 32 caracteres.",
-            )
-            invalid = str(exc) if str(exc) in known else "Confira a configuração do painel."
-        except PyMongoError:
-            invalid = "Confira a URL e o nome do banco MongoDB."
+            mongo = MongoClient(v["BOT_MONGO_URI"], connect=False, serverSelectionTimeoutMS=3500,
+                                connectTimeoutMS=3500, socketTimeoutMS=3500)
+            db = mongo[v["BOT_MONGO_DATABASE"]]
+            if bot_id and is_snowflake(bot_id):
+                status_collection = db[bot_id]
+        except (PyMongoError, ValueError, TypeError):
+            errors.append("BOT_MONGO_URI: não foi possível interpretar a conexão MongoDB.")
+            db = None
 
-    def signed_in():
-        return collection is not None and session.get("owner") == owner_id
+    def owner_logged_in() -> bool:
+        return session.get("owner_id") == v["DASHBOARD_OWNER_ID"] and bool(v["DASHBOARD_OWNER_ID"])
 
-    def check_form():
-        if not signed_in():
+    def require_owner():
+        if not owner_logged_in():
             abort(403)
-        expected = session.get("csrf", "")
-        received = request.form.get("csrf", "")
-        if not expected or not secrets.compare_digest(expected.encode(), received.encode()):
+
+    def csrf_token():
+        return session.setdefault("csrf_token", secrets.token_urlsafe(32))
+
+    def require_csrf():
+        expected = session.get("csrf_token", "")
+        actual = request.form.get("csrf_token", "")
+        if not expected or not actual or not secrets.compare_digest(expected, actual):
             abort(400)
 
-    def render_status(*, error="", submitted=None, saved=False, code=200):
-        available = False
-        names = []
-        try:
-            document = collection.find_one(STATUS_DOCUMENT, {"names": 1, "name": 1})
-            if document is None:
-                error = "Confira se o banco e o ID do bot correspondem à aplicação em execução."
-                code = 503
-            else:
-                available = True
-                names = document.get("names")
-                if not isinstance(names, list) or not names:
-                    names = [document.get("name", "")]
-                names = [name for name in names if isinstance(name, str) and name]
-        except PyMongoError:
-            error, code = "O MongoDB está indisponível. Confira a conexão do painel.", 503
-        return render_template(
-            "index.html", authenticated=True, ready=True, available=available,
-            account=session.get("display_name", "Discord"), csrf=session["csrf"],
-            status_text="\n".join(names) if submitted is None else submitted,
-            first_status=names[0] if names else "Sem mensagem de status",
-            error=error, saved=saved and not error,
-        ), code
+    @app.context_processor
+    def common_vars():
+        return {"is_owner": owner_logged_in(), "account": session.get("account", ""),
+                "csrf_token": csrf_token(), "site_name": "PXzx Store"}
 
     @app.after_request
-    def protect_response(response):
+    def secure_headers(response):
         response.headers["Cache-Control"] = "no-store"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; style-src 'self' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            "base-uri 'none'; frame-ancestors 'none'; form-action 'self' https://discord.com"
-        )
-        response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; img-src 'self' data:; script-src 'self'; "
+            "style-src 'self'; font-src 'self'; base-uri 'none'; "
+            "form-action 'self'; frame-ancestors 'none'"
+        )
         return response
 
     @app.get("/health")
     def health():
-        return {"status": "ok" if collection is not None else "awaiting_configuration"}
+        return {"status": "ok", "configured": not bool(errors)}
 
     @app.get("/")
-    def home():
-        if signed_in():
-            return render_status(saved=request.args.get("salvo") == "1")
-        return render_template(
-            "index.html", authenticated=False, ready=collection is not None,
-            error=invalid, needs_setup=bool(missing or invalid),
-        )
+    def index():
+        return render_template("index.html", setup_needed=bool(errors))
 
-    def start_discord_login(purpose, scope, context=""):
+    def start_oauth(purpose, scopes, campaign=""):
+        # MongoDB ou migração podem estar pendentes: o dono ainda deve conseguir entrar
+        # para ler o diagnóstico. Somente os requisitos do OAuth bloqueiam o login.
+        oauth_names = ("PUBLIC_BASE_URL", "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
+                       "DASHBOARD_OWNER_ID", "SESSION_SECRET")
+        oauth_errors = any(any(item.startswith(name + ":") for name in oauth_names)
+                           for item in errors)
+        if oauth_errors:
+            abort(503)
         state = secrets.token_urlsafe(32)
-        verifier = secrets.token_urlsafe(48)
+        verifier = secrets.token_urlsafe(56)
         challenge = urlsafe_b64encode(sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-        session["discord_oauth"] = {
-            "state": state, "verifier": verifier, "started": int(time()),
-            "purpose": purpose, "context": context,
-        }
-        parameters = urlencode({
-            "response_type": "code", "client_id": values["DISCORD_CLIENT_ID"],
-            "redirect_uri": base_url + "/auth/discord/callback", "scope": scope,
+        session["oauth_request"] = {"state": state, "verifier": verifier, "time": int(time()),
+                                    "purpose": purpose, "campaign": campaign}
+        query = urlencode({
+            "response_type": "code", "client_id": v["DISCORD_CLIENT_ID"],
+            "redirect_uri": base + "/auth/discord/callback", "scope": scopes,
             "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
         })
-        return redirect(f"{DISCORD}/oauth2/authorize?{parameters}", code=303 if request.method == "POST" else 302)
+        return redirect(f"{DISCORD_ORIGIN}/oauth2/authorize?{query}", code=303)
 
     @app.get("/login")
     def login():
-        if collection is None:
-            return redirect(url_for("home"))
-        session.clear()
-        return start_discord_login("owner", "identify")
+        # Não apaga a sessão antes de redirecionar: só substitui o OAuth pendente.
+        return start_oauth("owner", "identify")
 
     @app.get("/auth/discord/callback")
-    def callback():
-        if collection is None:
+    def oauth_callback():
+        prior = session.pop("oauth_request", None)
+        state = request.args.get("state", "")
+        if (not prior or not isinstance(prior, dict) or not state or
+            not secrets.compare_digest(prior.get("state", ""), state) or
+            time() - prior.get("time", 0) > 600 or
+            request.args.get("iss", DISCORD_ORIGIN) != DISCORD_ORIGIN):
             abort(400)
-        oauth = session.pop("discord_oauth", None)
-        supplied = request.args.get("state", "")
-        if (not oauth or time() - oauth["started"] > 600
-                or not secrets.compare_digest(oauth["state"].encode(), supplied.encode())
-                or request.args.get("iss", DISCORD) != DISCORD):
-            abort(400)
-        purpose = oauth["purpose"]
-        code = request.args.get("code")
-        if purpose != "owner" and request.args.get("error") == "access_denied":
-            return redirect(url_for("migration.public_page", notice="declined"), code=303)
+        if request.args.get("error") == "access_denied":
+            return redirect(url_for("migration.migrate", msg="declined") if prior["purpose"] != "owner"
+                            else url_for("index"), code=303)
+        code = request.args.get("code", "")
         if not code:
             abort(400)
         try:
-            grant = requests.post(f"{DISCORD}/api/v10/oauth2/token", data={
-                "grant_type": "authorization_code", "client_id": values["DISCORD_CLIENT_ID"],
-                "client_secret": values["DISCORD_CLIENT_SECRET"], "code": code,
-                "code_verifier": oauth["verifier"], "redirect_uri": base_url + "/auth/discord/callback",
-            }, timeout=8, allow_redirects=False)
-            if grant.status_code != 200:
-                return render_template("error.html", message="Falha no login. Confira o Client Secret e o Redirect."), 502
-            grant_data = grant.json()
-            token = grant_data["access_token"]
-            if not isinstance(token, str) or not token:
-                abort(502)
-            profile = requests.get(f"{DISCORD}/api/v10/users/@me", headers={
-                "Authorization": f"Bearer {token}",
-            }, timeout=8, allow_redirects=False)
-            if profile.status_code != 200:
-                abort(502)
-            user = profile.json()
-        except (requests.RequestException, KeyError, ValueError, TypeError):
+            response = requests.post(f"{DISCORD_API}/oauth2/token", data={
+                "client_id": v["DISCORD_CLIENT_ID"], "client_secret": v["DISCORD_CLIENT_SECRET"],
+                "grant_type": "authorization_code", "code": code,
+                "redirect_uri": base + "/auth/discord/callback", "code_verifier": prior["verifier"],
+            }, timeout=(4, 8), allow_redirects=False)
+            response.raise_for_status()
+            grant = response.json()
+            access_token = grant.get("access_token")
+            if not isinstance(access_token, str) or not access_token:
+                raise ValueError("missing token")
+            who = requests.get(f"{DISCORD_API}/users/@me",
+                               headers={"Authorization": f"Bearer {access_token}"},
+                               timeout=(4, 8), allow_redirects=False)
+            who.raise_for_status()
+            profile = who.json()
+        except (requests.RequestException, ValueError, KeyError, TypeError):
+            return render_template("error.html", error_title="Falha no Discord",
+                                   message="Não foi possível concluir a autorização. Confira Client Secret e Redirect URL."), 502
+        if not isinstance(profile, dict) or not is_snowflake(profile.get("id", "")):
             abort(502)
-        if not isinstance(user, dict):
-            abort(502)
-        if purpose != "owner":
-            return finish_migration(purpose, oauth["context"], grant_data, user)
-        if user.get("id") != owner_id:
-            abort(403)
-        session.clear()
-        session.permanent = True
-        session.update(owner=owner_id, display_name=user.get("global_name") or user.get("username") or "Discord",
-                       csrf=secrets.token_urlsafe(32))
-        return redirect(url_for("home"))
+        if prior["purpose"] == "owner":
+            if profile["id"] != v["DASHBOARD_OWNER_ID"]:
+                abort(403)
+            session.clear()
+            session.permanent = True
+            session["owner_id"] = profile["id"]
+            session["account"] = profile.get("global_name") or profile.get("username") or "Proprietário"
+            csrf_token()
+            return redirect(url_for("panel"), code=303)
+        return finish_member_oauth(prior["purpose"], prior["campaign"], grant, profile)
 
-    @app.post("/status")
-    def save_status():
-        check_form()
-        text = request.form.get("names", "")
-        names = [line.strip() for line in text.splitlines() if line.strip()]
-        if not 1 <= len(names) <= 5 or any(len(name) > 100 for name in names):
-            return render_status(error="Informe de 1 a 5 frases com até 100 caracteres cada.",
-                                 submitted=text, code=400)
+    @app.get("/painel")
+    def panel():
+        require_owner()
+        names = []
+        saved = request.args.get("saved") == "1"
+        err = ""
+        pending = None
         try:
-            result = collection.update_one(STATUS_DOCUMENT, {"$set": {"names": names}, "$unset": {"name": ""}})
-            if not result.matched_count:
-                return render_status(error="O documento de status não foi encontrado.", submitted=text, code=503)
+            if status_collection is not None:
+                doc = status_collection.find_one({"_id": "custom_status"}, {"names": 1, "name": 1})
+                if isinstance(doc, dict):
+                    values = doc.get("names")
+                    if not isinstance(values, list) or not values:
+                        values = [doc.get("name", "")]
+                    names = [x for x in values if isinstance(x, str) and x.strip()][:5]
+            if migration_ready and db is not None:
+                pending = db["discord_migration_consents"].count_documents(
+                    {"campaign": migration_campaign, "expires_at": {"$gt": utcnow()}})
         except PyMongoError:
-            return render_status(error="O MongoDB não confirmou a alteração. Tente de novo.",
-                                 submitted=text, code=503)
-        return redirect(url_for("home", salvo="1"), code=303)
+            err = "O MongoDB não respondeu. Confira a conexão de rede e o banco selecionado."
+        return render_template("panel.html", section="overview", names=names, pending=pending,
+                               saved=saved, error=err, config_errors=errors,
+                               migration_ready=migration_ready)
 
-    @app.post("/sair")
+    @app.post("/painel/status")
+    def save_status():
+        require_owner()
+        require_csrf()
+        names = [line.strip() for line in request.form.get("names", "").splitlines() if line.strip()]
+        if not 1 <= len(names) <= 5 or any(len(line) > 100 for line in names):
+            return render_template("error.html", error_title="Texto inválido",
+                                   message="Informe de 1 a 5 frases com até 100 caracteres cada."), 400
+        if status_collection is None:
+            return render_template("error.html", error_title="Banco indisponível",
+                                   message="Confira BOT_MONGO_URI, BOT_MONGO_DATABASE e BOT_ID."), 503
+        try:
+            status_collection.update_one({"_id": "custom_status"},
+                                         {"$set": {"names": names}, "$unset": {"name": ""}}, upsert=True)
+        except PyMongoError:
+            return render_template("error.html", error_title="Não foi possível salvar",
+                                   message="O MongoDB está indisponível."), 503
+        return redirect(url_for("panel", saved="1"), code=303)
+
+    @app.post("/logout")
     def logout():
-        check_form()
+        require_owner()
+        require_csrf()
         session.clear()
-        return redirect(url_for("home"), code=303)
+        return redirect(url_for("index"), code=303)
+
+    @app.get("/privacidade")
+    def privacy():
+        return render_template("privacy.html")
 
     @app.errorhandler(400)
     @app.errorhandler(403)
-    @app.errorhandler(502)
-    def show_error(error):
-        messages = {
-            400: "Esta tentativa expirou ou é inválida. Volte ao painel e tente de novo.",
-            403: "O acesso a este painel é restrito ao proprietário configurado.",
-            502: "Não foi possível concluir o login pelo Discord. Tente de novo.",
+    @app.errorhandler(404)
+    @app.errorhandler(503)
+    def error_page(error):
+        titles = {400: "Solicitação inválida", 403: "Acesso restrito",
+                  404: "Página não encontrada", 503: "Serviço ainda não configurado"}
+        descriptions = {
+            400: "Recarregue a página e tente novamente.",
+            403: "Esta área é exclusiva do proprietário configurado no painel.",
+            404: "Confira o endereço e tente novamente.",
+            503: "Confira as variáveis de ambiente da Vercel e publique um novo deploy.",
         }
-        return render_template("error.html", message=messages[error.code]), error.code
+        return render_template("error.html", error_title=titles[error.code],
+                               message=descriptions[error.code]), error.code
 
-    finish_migration = register_migration(
-        app, settings, database, values["DISCORD_CLIENT_ID"], start_discord_login, signed_in, check_form,
+    finish_member_oauth, migration_ready, migration_campaign, utcnow = setup_migration(
+        app, env, db, v["DISCORD_CLIENT_ID"], errors, owner_logged_in,
+        require_owner, require_csrf, start_oauth,
     )
     return app
 
 
 app = create_app()
+
+if __name__ == "__main__":
+    # Para desenvolvimento local use HTTPS via proxy ou a CLI da Vercel.
+    app.run(port=5000, debug=False)

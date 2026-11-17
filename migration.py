@@ -1,3 +1,6 @@
+"""Rotas de migração com consentimento explícito, token cifrado e expiração."""
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
 import secrets
 
@@ -7,27 +10,26 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, PyMongoError
 import requests
 
-
 API = "https://discord.com/api/v10"
-PAGE_SIZE = 30
-PUBLIC_NOTICES = {
-    "authorized": "Autorização registrada. Agora a equipe pode adicionar você ao destino.",
-    "canceled": "Sua autorização de entrada foi cancelada.",
-    "declined": "A autorização pelo Discord foi cancelada.",
-    "not_member": "A conta precisa fazer parte do servidor de origem para autorizar a migração.",
-    "locked": "A entrada já começou a ser processada. Confira de novo em instantes.",
-    "discord": "O Discord não confirmou a autorização. Tente novamente.",
-    "unavailable": "A migração está temporariamente indisponível. Avise a equipe do servidor.",
+PAGE_SIZE = 25
+PUBLIC_MESSAGES = {
+    "authorized": "Autorização registrada! A equipe poderá adicionar sua conta ao servidor de destino.",
+    "declined": "Você cancelou a autorização no Discord. Nenhum acesso foi registrado.",
+    "canceled": "Autorização cancelada e removida.",
+    "not_member": "Esta conta não faz parte do servidor de origem.",
+    "locked": "Esta autorização está sendo processada. Atualize a página em instantes.",
+    "denied": "O Discord não confirmou a permissão necessária.",
+    "unavailable": "Serviço temporariamente indisponível. Tente novamente mais tarde.",
 }
-ADMIN_NOTICES = {
+ADMIN_MESSAGES = {
     "joined": "O Discord confirmou a entrada no servidor de destino.",
-    "present": "A conta já está no servidor de destino.",
-    "unavailable": "Não foi possível confirmar o resultado. Confira no Discord antes de tentar de novo.",
-    "missing": "A autorização expirou, foi cancelada ou já está em processamento.",
-    "expired": "Esta autorização não pode mais ser usada. O membro poderá autorizar novamente.",
-    "limited": "O Discord limitou as solicitações. Aguarde e tente de novo.",
-    "permissions": "Confira o token, a instalação do bot no destino e a permissão de criar convites.",
-    "rejected": "O Discord recusou a entrada. Confira o acesso dessa conta ao servidor de destino.",
+    "present": "Esse membro já está no destino. A autorização foi removida.",
+    "expired": "O token expirou. Peça ao membro para autorizar novamente.",
+    "missing": "Esta autorização não existe, expirou ou já foi usada.",
+    "permissions": "Discord negou acesso. Confira o bot, os IDs e suas permissões no destino.",
+    "limited": "Limite de solicitações do Discord atingido. Tente mais tarde.",
+    "unavailable": "Discord ou MongoDB indisponível. Confira antes de repetir a operação.",
+    "rejected": "A entrada não foi aceita. Confira as regras e condições da conta no Discord.",
 }
 
 
@@ -35,257 +37,240 @@ def now_utc():
     return datetime.now(timezone.utc)
 
 
-def is_discord_id(value):
-    return (
-        isinstance(value, str) and 1 <= len(value) <= 20 and value.isascii()
-        and value.isdecimal() and value[0] != "0" and int(value) < 2**64
-    )
+def snowflake(value):
+    return (isinstance(value, str) and value.isascii() and value.isdecimal()
+            and 1 <= len(value) <= 20 and value[0] != "0" and int(value) < 2**64)
 
 
-def discord_error_code(response):
+def discord_error(response):
     try:
         return response.json().get("code")
     except (ValueError, AttributeError):
         return None
 
 
-def register_migration(app, settings, database, client_id, start_login, signed_in, check_owner_form):
-    migration = Blueprint("migration", __name__)
-    source_id = settings.get("MIGRATION_SOURCE_ID", "").strip()
-    destination_id = settings.get("MIGRATION_DESTINATION_ID", "").strip()
-    source_name = settings.get("MIGRATION_SOURCE_NAME", "").strip()
-    destination_name = settings.get("MIGRATION_DESTINATION_NAME", "").strip()
-    token = settings.get("MIGRATION_BOT_TOKEN", "").strip()
-    encryption_key = settings.get("MIGRATION_ENCRYPTION_KEY", "").strip()
+def setup_migration(app, env, db, client_id, core_errors, owner_logged_in,
+                    require_owner, require_csrf, start_oauth):
+    bp = Blueprint("migration", __name__)
+    fields = ["MIGRATION_BOT_TOKEN", "MIGRATION_SOURCE_ID", "MIGRATION_SOURCE_NAME",
+              "MIGRATION_DESTINATION_ID", "MIGRATION_DESTINATION_NAME", "MIGRATION_ENCRYPTION_KEY"]
+    config = {k: str(env.get(k, "")).strip() for k in fields}
+    src = config["MIGRATION_SOURCE_ID"]
+    dst = config["MIGRATION_DESTINATION_ID"]
+    problems = list(core_errors)
+    for field in fields:
+        if not config[field]:
+            problems.append(f"{field}: variável não configurada.")
+    for field in ("MIGRATION_SOURCE_ID", "MIGRATION_DESTINATION_ID"):
+        if config[field] and not snowflake(config[field]):
+            problems.append(f"{field}: ID numérico inválido.")
+    if src and src == dst:
+        problems.append("Os servidores de origem e destino devem ser diferentes.")
     try:
-        fernet = Fernet(encryption_key.encode())
+        cipher = Fernet(config["MIGRATION_ENCRYPTION_KEY"].encode())
     except (ValueError, TypeError):
-        fernet = None
+        cipher = None
+        if config["MIGRATION_ENCRYPTION_KEY"]:
+            problems.append("MIGRATION_ENCRYPTION_KEY: a chave precisa ser Fernet (32 bytes, Base64 URL-safe).")
+    if db is None:
+        if not any("Mongo" in issue or "BOT_MONGO" in issue for issue in problems):
+            problems.append("MongoDB não está configurado corretamente.")
+    ready = not problems
+    consents = db["discord_migration_consents"] if ready else None
+    campaign = f"{client_id}:{src}:{dst}"
 
-    # Only show field names and safe validation messages to the authenticated owner.
-    # Never render environment variable values or secrets in the page.
-    config_problems = []
-    if database is None:
-        config_problems.append("MongoDB do painel indisponível: confira BOT_MONGO_URI, BOT_MONGO_DATABASE e as variáveis gerais do painel.")
-    if not token:
-        config_problems.append("MIGRATION_BOT_TOKEN não foi definida ou está vazia.")
-    if not source_name:
-        config_problems.append("MIGRATION_SOURCE_NAME não foi definida ou está vazia.")
-    if not destination_name:
-        config_problems.append("MIGRATION_DESTINATION_NAME não foi definida ou está vazia.")
-    if not is_discord_id(source_id):
-        config_problems.append("MIGRATION_SOURCE_ID está ausente ou não é um ID numérico válido do Discord.")
-    if not is_discord_id(destination_id):
-        config_problems.append("MIGRATION_DESTINATION_ID está ausente ou não é um ID numérico válido do Discord.")
-    if is_discord_id(source_id) and source_id == destination_id:
-        config_problems.append("MIGRATION_SOURCE_ID e MIGRATION_DESTINATION_ID precisam ser diferentes.")
-    if fernet is None:
-        config_problems.append("MIGRATION_ENCRYPTION_KEY está ausente ou não é uma chave Fernet válida (32 bytes em Base64 URL-safe).")
-    ready = not config_problems
-    app.logger.info("Migração: %s", "configuração pronta" if ready else "verifique configuração no painel administrativo")
-    campaign = f"{client_id}:{source_id}:{destination_id}"
-    authorizations = database["discord_migration_consents"] if ready else None
-    bot_headers = {"Authorization": f"Bot {token}"}
+    def doc_id(user_id):
+        return f"{campaign}:{user_id}"
 
-    def record_id(user_id):
-        return campaign + ":" + user_id
+    def member_id():
+        identity = session.get("member_identity") or {}
+        return identity.get("user_id") if identity.get("campaign") == campaign else None
 
-    def public_notice(notice=None):
-        return redirect(url_for("migration.public_page", notice=notice), code=303)
-
-    def admin_notice(notice):
-        return redirect(url_for("migration.admin_page", notice=notice), code=303)
-
-    def current_member():
-        identity = session.get("migration_identity") or {}
-        return identity.get("id") if identity.get("campaign") == campaign else None
-
-    def check_member_form():
-        expected = session.get("migration_csrf", "")
-        supplied = request.form.get("csrf", "")
-        if not expected or not secrets.compare_digest(expected.encode(), supplied.encode()):
+    def member_csrf():
+        expected = session.get("csrf_token", "")
+        received = request.form.get("csrf_token", "")
+        if not expected or not received or not secrets.compare_digest(expected, received):
             abort(400)
 
-    def unlocked(at):
-        return {"$or": [{"locked_until": {"$exists": False}}, {"locked_until": {"$lte": at}}]}
+    def public_notice(message):
+        return redirect(url_for("migration.migrate", msg=message), code=303)
 
-    @migration.get("/migrar")
-    def public_page():
-        authorization = None
-        notice = PUBLIC_NOTICES.get(request.args.get("notice"))
-        csrf = None
-        if ready:
-            csrf = session.setdefault("migration_csrf", secrets.token_urlsafe(32))
-            if member := current_member():
-                try:
-                    authorization = authorizations.find_one(
-                        {"_id": record_id(member), "expires_at": {"$gt": now_utc()}},
-                        {"expires_at": 1},
-                    )
-                except PyMongoError:
-                    notice = PUBLIC_NOTICES["unavailable"]
-        return render_template(
-            "migration.html", ready=ready, source_id=source_id, source_name=source_name,
-            destination_id=destination_id, destination_name=destination_name, notice=notice,
-            csrf=csrf, authorization=authorization, identified=bool(current_member()),
-        )
+    def admin_notice(message):
+        return redirect(url_for("migration.admin", msg=message), code=303)
 
-    @migration.post("/migrar/autorizar")
+    def available(at):
+        return {"$or": [{"processing_until": {"$exists": False}},
+                        {"processing_until": {"$lte": at}}]}
+
+    @bp.get("/migrar")
+    def migrate():
+        current = None
+        info = PUBLIC_MESSAGES.get(request.args.get("msg"))
+        if ready and member_id():
+            try:
+                current = consents.find_one({"_id": doc_id(member_id()),
+                                             "expires_at": {"$gt": now_utc()}},
+                                            {"expires_at": 1})
+            except PyMongoError:
+                info = PUBLIC_MESSAGES["unavailable"]
+        return render_template("migration.html", ready=ready,
+                               source=config["MIGRATION_SOURCE_NAME"], source_id=src,
+                               destination=config["MIGRATION_DESTINATION_NAME"], destination_id=dst,
+                               consent=current, identified=bool(member_id()), notice=info)
+
+    @bp.post("/migrar/autorizar")
     def authorize():
         if not ready:
-            abort(400)
-        check_member_form()
+            abort(503)
+        member_csrf()
         if request.form.get("consent") != "yes":
             abort(400)
-        return start_login("migration_consent", "identify guilds.join", campaign)
+        return start_oauth("member_consent", "identify guilds.join", campaign)
 
-    @migration.post("/migrar/consultar")
-    def identify():
+    @bp.post("/migrar/consultar")
+    def review():
         if not ready:
-            abort(400)
-        check_member_form()
-        return start_login("migration_identity", "identify", campaign)
+            abort(503)
+        member_csrf()
+        return start_oauth("member_lookup", "identify", campaign)
 
-    @migration.post("/migrar/cancelar")
+    @bp.post("/migrar/cancelar")
     def cancel():
-        if not ready or not (member := current_member()):
+        if not ready:
+            abort(503)
+        member_csrf()
+        user_id = member_id()
+        if not user_id:
             abort(403)
-        check_member_form()
-        query = {"_id": record_id(member)}
+        at = now_utc()
         try:
-            canceled = authorizations.delete_one({**query, **unlocked(now_utc())})
-            if canceled.deleted_count == 0 and authorizations.find_one(query, {"_id": 1}):
+            delete = consents.delete_one({"_id": doc_id(user_id), **available(at)})
+            if delete.deleted_count == 0 and consents.find_one({"_id": doc_id(user_id)}, {"_id": 1}):
                 return public_notice("locked")
         except PyMongoError:
             return public_notice("unavailable")
         return public_notice("canceled")
 
-    @migration.get("/migracao/admin")
-    def admin_page():
-        if not signed_in():
-            abort(403)
+    @bp.get("/migracao/admin")
+    def admin():
+        require_owner()
         cursor = request.args.get("depois", "")
-        if cursor and not is_discord_id(cursor):
+        if cursor and not snowflake(cursor):
             abort(400)
-        entries = []
-        notice = ADMIN_NOTICES.get(request.args.get("notice"))
+        people = []
+        notice = ADMIN_MESSAGES.get(request.args.get("msg"))
+        count = None
         if ready:
             query = {"campaign": campaign, "expires_at": {"$gt": now_utc()}}
             if cursor:
-                query["_id"] = {"$gt": record_id(cursor)}
+                query["_id"] = {"$gt": doc_id(cursor)}
             try:
-                entries = list(authorizations.find(
-                    query, {"user_id": 1, "name": 1, "expires_at": 1},
-                ).sort("_id", 1).limit(PAGE_SIZE + 1))
+                people = list(consents.find(query, {"user_id": 1, "name": 1, "expires_at": 1})
+                              .sort("_id", 1).limit(PAGE_SIZE + 1))
+                count = consents.count_documents({"campaign": campaign,
+                                                  "expires_at": {"$gt": now_utc()}})
             except PyMongoError:
-                notice = ADMIN_NOTICES["unavailable"]
-        next_cursor = entries[PAGE_SIZE - 1]["user_id"] if len(entries) > PAGE_SIZE else None
-        return render_template(
-            "migration_admin.html", authenticated=True, account=session.get("display_name", "Discord"),
-            csrf=session["csrf"], ready=ready, source_name=source_name,
-            destination_name=destination_name, entries=entries[:PAGE_SIZE],
-            cursor=cursor, next_cursor=next_cursor, notice=notice, config_problems=config_problems,
-        )
+                notice = ADMIN_MESSAGES["unavailable"]
+        next_cursor = people[PAGE_SIZE - 1]["user_id"] if len(people) > PAGE_SIZE else None
+        return render_template("migration_admin.html", section="migration", ready=ready,
+                               config_errors=problems, source=config["MIGRATION_SOURCE_NAME"],
+                               destination=config["MIGRATION_DESTINATION_NAME"], people=people[:PAGE_SIZE],
+                               pending=count, next_cursor=next_cursor, cursor=cursor, notice=notice)
 
-    @migration.post("/migracao/admin/adicionar")
-    def add_member():
-        check_owner_form()
-        user_id = request.form.get("user_id")
-        if not ready or not is_discord_id(user_id):
+    @bp.post("/migracao/admin/adicionar")
+    def add():
+        require_owner()
+        require_csrf()
+        user_id = request.form.get("user_id", "")
+        if not ready or not snowflake(user_id):
             abort(400)
-        key = record_id(user_id)
-        claim = secrets.token_urlsafe(18)
+        key = doc_id(user_id)
+        claim = secrets.token_urlsafe(20)
         now = now_utc()
         try:
-            record = authorizations.find_one_and_update(
-                {"_id": key, "expires_at": {"$gt": now}, **unlocked(now)},
-                {"$set": {"claim": claim, "locked_until": now + timedelta(seconds=45)}},
-                projection={"token": 1}, return_document=ReturnDocument.AFTER,
-            )
+            entry = consents.find_one_and_update({"_id": key,
+                                                  "expires_at": {"$gt": now},
+                                                  **available(now)},
+                                                 {"$set": {"claim": claim,
+                                                           "processing_until": now + timedelta(seconds=45)}},
+                                                 projection={"token": 1},
+                                                 return_document=ReturnDocument.AFTER)
         except PyMongoError:
             return admin_notice("unavailable")
-        if not record:
+        if entry is None:
             return admin_notice("missing")
 
         claimed = {"_id": key, "claim": claim}
+        outcome = "rejected"
         try:
-            access_token = fernet.decrypt(record["token"].encode()).decode()
-            response = requests.put(
-                f"{API}/guilds/{destination_id}/members/{user_id}",
-                headers=bot_headers, json={"access_token": access_token},
-                timeout=(3, 7), allow_redirects=False,
-            )
-            if response.status_code in (201, 204):
-                result = "joined" if response.status_code == 201 else "present"
-            elif discord_error_code(response) == 50025:
-                result = "expired"
+            token = cipher.decrypt(entry["token"].encode()).decode()
+            response = requests.put(f"{API}/guilds/{dst}/members/{user_id}",
+                                    headers={"Authorization": f"Bot {config['MIGRATION_BOT_TOKEN']}"},
+                                    json={"access_token": token}, timeout=(4, 8),
+                                    allow_redirects=False)
+            if response.status_code == 201:
+                outcome = "joined"
+            elif response.status_code == 204:
+                outcome = "present"
             elif response.status_code == 429:
-                result = "limited"
+                outcome = "limited"
             elif response.status_code in (401, 403):
-                result = "permissions"
+                outcome = "permissions"
+            elif discord_error(response) in (50025, 10012):
+                outcome = "expired"
             elif response.status_code >= 500:
-                result = "unavailable"
-            else:
-                result = "rejected"
+                outcome = "unavailable"
         except InvalidToken:
-            result = "expired"
-        except requests.RequestException:
-            result = "unavailable"
+            outcome = "expired"
+        except (requests.RequestException, ValueError, KeyError):
+            outcome = "unavailable"
 
         try:
-            if result in ("joined", "present", "expired"):
-                authorizations.delete_one(claimed)
+            if outcome in ("joined", "present", "expired"):
+                consents.delete_one(claimed)
             else:
-                authorizations.update_one(claimed, {"$unset": {"claim": "", "locked_until": ""}})
+                consents.update_one(claimed, {"$unset": {"claim": "", "processing_until": ""}})
         except PyMongoError:
-            return admin_notice("unavailable")
-        return admin_notice(result)
+            outcome = "unavailable"
+        return admin_notice(outcome)
 
-    def finish_login(purpose, context, grant, user):
-        user_id = user.get("id")
-        if not ready or context != campaign or not is_discord_id(user_id):
+    def complete_oauth(purpose, context, grant, profile):
+        if not ready or context != campaign or not snowflake(profile.get("id", "")):
             abort(400)
-        session["migration_identity"] = {"campaign": campaign, "id": user_id}
-        if purpose == "migration_identity":
-            return public_notice()
-        if purpose != "migration_consent":
+        user_id = profile["id"]
+        session["member_identity"] = {"campaign": campaign, "user_id": user_id}
+        if purpose == "member_lookup":
+            return public_notice(None)
+        if purpose != "member_consent":
             abort(400)
+        granted = str(grant.get("scope", "")).split()
         expires_in = grant.get("expires_in")
-        scope = grant.get("scope")
-        if (not isinstance(scope, str) or "guilds.join" not in scope.split()
-                or type(expires_in) is not int or expires_in <= 0):
-            return public_notice("discord")
+        if "guilds.join" not in granted or type(expires_in) is not int or expires_in <= 0:
+            return public_notice("denied")
         try:
-            membership = requests.get(
-                f"{API}/guilds/{source_id}/members/{user_id}",
-                headers=bot_headers, timeout=(3, 7), allow_redirects=False,
-            )
+            check = requests.get(f"{API}/guilds/{src}/members/{user_id}",
+                                 headers={"Authorization": f"Bot {config['MIGRATION_BOT_TOKEN']}"},
+                                 timeout=(4, 8), allow_redirects=False)
         except requests.RequestException:
             return public_notice("unavailable")
-        if membership.status_code == 404 and discord_error_code(membership) == 10007:
+        if check.status_code == 404 and discord_error(check) == 10007:
             return public_notice("not_member")
-        if membership.status_code != 200:
+        if check.status_code != 200:
             return public_notice("unavailable")
 
-        now = now_utc()
-        display_name = user.get("global_name") or user.get("username")
+        label = profile.get("global_name") or profile.get("username") or "Usuário Discord"
+        timestamp = now_utc()
         try:
-            authorizations.create_index("expires_at", expireAfterSeconds=0)
-            authorizations.update_one(
-                {"_id": record_id(user_id), **unlocked(now)},
-                {"$set": {
-                    "user_id": user_id, "campaign": campaign,
-                    "name": display_name[:100] if isinstance(display_name, str) else "Conta Discord",
-                    "token": fernet.encrypt(grant["access_token"].encode()).decode(),
-                    "expires_at": now + timedelta(seconds=expires_in),
-                }, "$unset": {"claim": "", "locked_until": ""}},
-                upsert=True,
-            )
-        except DuplicateKeyError:
-            return public_notice("locked")
-        except PyMongoError:
+            consents.create_index("expires_at", expireAfterSeconds=0)
+            consents.update_one({"_id": doc_id(user_id), **available(timestamp)},
+                                {"$set": {"user_id": user_id, "campaign": campaign,
+                                          "name": str(label)[:100],
+                                          "token": cipher.encrypt(grant["access_token"].encode()).decode(),
+                                          "expires_at": timestamp + timedelta(seconds=min(expires_in, 86400))},
+                                 "$unset": {"claim": "", "processing_until": ""}}, upsert=True)
+        except (PyMongoError, DuplicateKeyError, KeyError, TypeError):
             return public_notice("unavailable")
         return public_notice("authorized")
 
-    app.register_blueprint(migration)
-    return finish_login
+    app.register_blueprint(bp)
+    return complete_oauth, ready, campaign, now_utc
