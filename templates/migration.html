@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Migração de servidor{% endblock %}
+{% block main %}
+  <div class="migration-layout">
+    <div>
+      <h1>Migração de servidor</h1>
+      {% if ready %}
+        <p class="lead">Autorize a equipe a adicionar sua conta ao servidor de destino.</p>
+        <dl class="server-path">
+          <div class="server">
+            <dt>Servidor de origem</dt>
+            <dd>{{ source_name }}</dd>
+            <dd class="server-id">{{ source_id }}</dd>
+          </div>
+          <div class="path-arrow" aria-hidden="true">→</div>
+          <div class="server destination">
+            <dt>Servidor de destino</dt>
+            <dd>{{ destination_name }}</dd>
+            <dd class="server-id">{{ destination_id }}</dd>
+          </div>
+        </dl>
+        <p class="muted"><a href="https://discord.com/channels/{{ source_id }}">Fale com a equipe no servidor de origem</a></p>
+      {% endif %}
+    </div>
+
+    <section class="card migration-actions">
+      {% if not ready %}
+        <h2>Migração indisponível</h2>
+        <p>Peça à equipe para conferir a configuração do site.</p>
+      {% else %}
+        {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+        {% if authorization %}
+          <h2>Autorização ativa</h2>
+          <p>A equipe pode adicionar sua conta até {{ authorization.expires_at.strftime('%d/%m/%Y às %H:%M UTC') }}.</p>
+          <form method="post" action="{{ url_for('migration.cancel') }}">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="secondary" type="submit">Cancelar autorização</button>
+          </form>
+        {% else %}
+          <h2>Autorizar entrada</h2>
+          <form method="post" action="{{ url_for('migration.authorize') }}">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <label class="consent">
+              <input type="checkbox" name="consent" value="yes" required>
+              <span>Autorizo a equipe a adicionar minha conta ao servidor <strong>{{ destination_name }}</strong>.</span>
+            </label>
+            <p class="muted">Guardamos o ID da conta, seu nome no Discord e uma autorização criptografada até sua entrada, o cancelamento ou o fim da validade.</p>
+            <button class="primary" type="submit">Autorizar pelo Discord</button>
+          </form>
+          {% if not identified %}
+            <form class="migration-review" method="post" action="{{ url_for('migration.identify') }}">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button class="secondary" type="submit">Consultar ou cancelar</button>
+            </form>
+          {% endif %}
+        {% endif %}
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

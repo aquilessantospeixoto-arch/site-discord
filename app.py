@@ -10,6 +10,7 @@ from flask import Flask, abort, redirect, render_template, request, session, url
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 import requests
+from migration import register_migration
 
 
 DISCORD = "https://discord.com"
@@ -46,6 +47,7 @@ def create_app(settings=None):
     owner_id = values["DASHBOARD_OWNER_ID"]
     invalid = ""
     collection = None
+    database = None
     if not missing:
         try:
             base = urlsplit(base_url)
@@ -58,7 +60,8 @@ def create_app(settings=None):
             if len(values["SESSION_SECRET"]) < 32:
                 raise ValueError("SESSION_SECRET precisa ter pelo menos 32 caracteres.")
             client = MongoClient(values["BOT_MONGO_URI"], connect=False, serverSelectionTimeoutMS=4500)
-            collection = client[values["BOT_MONGO_DATABASE"]][bot_id]
+            database = client[values["BOT_MONGO_DATABASE"]]
+            collection = database[bot_id]
         except ValueError as exc:
             # Evita enviar mensagens de configuração que possam conter segredos.
             known = (
@@ -111,7 +114,7 @@ def create_app(settings=None):
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; style-src 'self' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+            "base-uri 'none'; frame-ancestors 'none'; form-action 'self' https://discord.com"
         )
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -130,46 +133,54 @@ def create_app(settings=None):
             error=invalid, needs_setup=bool(missing or invalid),
         )
 
+    def start_discord_login(purpose, scope, context=""):
+        state = secrets.token_urlsafe(32)
+        verifier = secrets.token_urlsafe(48)
+        challenge = urlsafe_b64encode(sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        session["discord_oauth"] = {
+            "state": state, "verifier": verifier, "started": int(time()),
+            "purpose": purpose, "context": context,
+        }
+        parameters = urlencode({
+            "response_type": "code", "client_id": values["DISCORD_CLIENT_ID"],
+            "redirect_uri": base_url + "/auth/discord/callback", "scope": scope,
+            "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
+        })
+        return redirect(f"{DISCORD}/oauth2/authorize?{parameters}", code=303 if request.method == "POST" else 302)
+
     @app.get("/login")
     def login():
         if collection is None:
             return redirect(url_for("home"))
         session.clear()
-        state = secrets.token_urlsafe(32)
-        verifier = secrets.token_urlsafe(48)
-        challenge = urlsafe_b64encode(sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-        session.update(oauth_state=state, oauth_verifier=verifier, oauth_started=int(time()))
-        parameters = urlencode({
-            "response_type": "code", "client_id": values["DISCORD_CLIENT_ID"],
-            "redirect_uri": base_url + "/auth/discord/callback", "scope": "identify",
-            "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
-        })
-        return redirect(f"{DISCORD}/oauth2/authorize?{parameters}")
+        return start_discord_login("owner", "identify")
 
     @app.get("/auth/discord/callback")
     def callback():
         if collection is None:
             abort(400)
-        state = session.pop("oauth_state", "")
-        verifier = session.pop("oauth_verifier", "")
-        started = session.pop("oauth_started", 0)
+        oauth = session.pop("discord_oauth", None)
         supplied = request.args.get("state", "")
-        if (not state or not verifier or time() - started > 600
-                or not secrets.compare_digest(state.encode(), supplied.encode())
+        if (not oauth or time() - oauth["started"] > 600
+                or not secrets.compare_digest(oauth["state"].encode(), supplied.encode())
                 or request.args.get("iss", DISCORD) != DISCORD):
             abort(400)
+        purpose = oauth["purpose"]
         code = request.args.get("code")
+        if purpose != "owner" and request.args.get("error") == "access_denied":
+            return redirect(url_for("migration.public_page", notice="declined"), code=303)
         if not code:
             abort(400)
         try:
             grant = requests.post(f"{DISCORD}/api/v10/oauth2/token", data={
                 "grant_type": "authorization_code", "client_id": values["DISCORD_CLIENT_ID"],
                 "client_secret": values["DISCORD_CLIENT_SECRET"], "code": code,
-                "code_verifier": verifier, "redirect_uri": base_url + "/auth/discord/callback",
+                "code_verifier": oauth["verifier"], "redirect_uri": base_url + "/auth/discord/callback",
             }, timeout=8, allow_redirects=False)
             if grant.status_code != 200:
                 return render_template("error.html", message="Falha no login. Confira o Client Secret e o Redirect."), 502
-            token = grant.json()["access_token"]
+            grant_data = grant.json()
+            token = grant_data["access_token"]
             if not isinstance(token, str) or not token:
                 abort(502)
             profile = requests.get(f"{DISCORD}/api/v10/users/@me", headers={
@@ -180,7 +191,11 @@ def create_app(settings=None):
             user = profile.json()
         except (requests.RequestException, KeyError, ValueError, TypeError):
             abort(502)
-        if not isinstance(user, dict) or user.get("id") != owner_id:
+        if not isinstance(user, dict):
+            abort(502)
+        if purpose != "owner":
+            return finish_migration(purpose, oauth["context"], grant_data, user)
+        if user.get("id") != owner_id:
             abort(403)
         session.clear()
         session.permanent = True
@@ -222,6 +237,9 @@ def create_app(settings=None):
         }
         return render_template("error.html", message=messages[error.code]), error.code
 
+    finish_migration = register_migration(
+        app, settings, database, values["DISCORD_CLIENT_ID"], start_discord_login, signed_in, check_form,
+    )
     return app
 
 

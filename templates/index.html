@@ -5,9 +5,12 @@
       <div class="welcome-inner">
         <div class="mark big-mark" aria-hidden="true">P</div>
         <h1>Painel do bot</h1>
-        <p>Edite as mensagens de status que aparecem no Discord.</p>
+        <p>Gerencie o status do bot e a migração de membros do Discord.</p>
         {% if ready %}
-          <a class="button primary" href="{{ url_for('login') }}">Entrar com Discord</a>
+          <div class="welcome-actions">
+            <a class="button primary" href="{{ url_for('login') }}">Entrar com Discord</a>
+            <a class="button secondary" href="{{ url_for('migration.public_page') }}">Migrar para o novo servidor</a>
+          </div>
         {% elif needs_setup %}
           <div class="notice" role="status">
             <strong>Configuração pendente</strong>
@@ -17,8 +20,13 @@
       </div>
     </section>
   {% else %}
-    <h1>Status do bot</h1>
-    <p class="lead">Escolha o texto que aparece no perfil do bot.</p>
+    <div class="section-heading">
+      <div>
+        <h1>Status do bot</h1>
+        <p class="lead">Escolha o texto que aparece no perfil do bot.</p>
+      </div>
+      <a class="button secondary" href="{{ url_for('migration.admin_page') }}">Migração de membros</a>
+    </div>
     {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
     {% if saved %}<p class="notice success" role="status">Status salvo. O Discord pode levar cerca de um minuto para atualizar.</p>{% endif %}
     <div class="workspace">

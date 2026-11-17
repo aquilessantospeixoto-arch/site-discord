@@ -68,9 +68,48 @@ button, .button {
 .notice p { margin: 5px 0; color: inherit; }
 .error { background: #351e2a; border-color: #80455b; color: #ffd4e2; }
 .success { background: #163529; border-color: #3d725a; color: #a6ebc1; }
+.welcome-actions, .pagination { display: flex; flex-wrap: wrap; gap: 10px; }
+.welcome-actions { justify-content: center; }
+.section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 20px; }
+.section-heading .lead { margin-bottom: 0; }
+.migration-layout {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: clamp(24px, 5vw, 64px); align-items: start;
+}
+.server-path {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  margin: 0; gap: 12px; align-items: center;
+}
+.server {
+  padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+  overflow-wrap: anywhere;
+}
+.server.destination { border-color: #66549a; background: #211936; }
+.server dt, .server .server-id { font-size: .76rem; color: var(--muted); font-weight: 500; }
+.server dd { margin: 7px 0 0; font-weight: 750; }
+.path-arrow { color: var(--accent); font-size: 1.2rem; }
+.migration-actions h2 { margin-bottom: 16px; }
+.migration-actions .notice:first-child { margin-top: 0; }
+.consent {
+  display: flex; align-items: flex-start; gap: 12px; padding: 12px;
+  margin: 0; line-height: 1.5; border: 1px solid var(--line); border-radius: 9px; cursor: pointer;
+}
+.consent input { margin: 4px 0 0; width: 17px; height: 17px; flex: 0 0 17px; accent-color: var(--accent); }
+.migration-review { margin: 10px 0 0; }
+.member-card h2 { margin-bottom: 12px; }
+.member-list { margin: 0; padding: 0; list-style: none; }
+.member-list li {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 14px 0; border-top: 1px solid var(--line);
+}
+.member-details { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.member-details small { color: var(--muted); }
+.pagination { margin-top: 14px; }
 @media (max-width: 680px) {
   .shell { padding: 39px 18px; }
   .top { padding: 0 18px; min-height: 64px; }
   .workspace { grid-template-columns: 1fr; }
   .card { padding: 20px; }
+  .migration-layout { grid-template-columns: 1fr; }
+  .member-list li, .section-heading { flex-direction: column; align-items: flex-start; }
 }

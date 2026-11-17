@@ -1,65 +1,84 @@
-Painel do PXzx Vendas na Vercel
+PXzx Store — painel e migração de membros
 
-O painel permite editar as mensagens de status que o bot exibe no Discord.
-O login dá acesso apenas à conta informada em DASHBOARD_OWNER_ID.
+O membro abre /migrar, confere os dois servidores e autoriza a entrada pelo
+Discord. O dono do painel entra em Migração de membros e clica em
+Adicionar ao destino para cada conta que autorizou. O Discord adiciona
+a conta ao servidor de destino. A autorização criptografada é removida
+após o uso, por cancelamento ou quando expira no MongoDB.
 
-1. Extraia o ZIP e envie os arquivos extraídos para um repositório no GitHub.
-   Deixe app.py, requirements.txt, public e templates na raiz do repositório.
-   Importe o repositório em https://vercel.com/new e clique em Deploy.
-   A Vercel detecta o Flask a partir de requirements.txt.
-   Depois do deploy, copie o endereço de produção em Settings → Domains.
+1. Publique na Vercel
 
-2. Em https://discord.com/developers/applications, abra a aplicação do seu bot.
-   Em OAuth2 → Redirects, adicione o endereço da Vercel seguido de
-   /auth/discord/callback. Exemplo de endereço completo
+   Extraia este ZIP e envie o conteúdo a um repositório seu. Deixe app.py,
+   migration.py, requirements.txt, templates e public na raiz. Importe o
+   repositório em https://vercel.com/new. A Vercel detecta o Flask.
+   Copie o domínio de produção em Settings → Domains.
 
-   https://seu-painel.vercel.app/auth/discord/callback
+2. Configure sua aplicação do Discord
 
-   Salve o Redirect e copie o Client Secret da seção OAuth2.
-   Veja o Application ID em General Information.
+   Abra https://discord.com/developers/applications. Use uma aplicação sua,
+   com um bot criado nela. Instale esse bot na origem e no destino. Na
+   origem, ele verifica se a conta faz parte do servidor. No destino,
+   dê ao bot a permissão Criar convite.
 
-3. Na Vercel, abra Settings → Environment Variables. Adicione estas variáveis
-   em Production.
+   Em OAuth2 → Redirects, cadastre o domínio de produção seguido de
+   /auth/discord/callback. Exemplo
 
-   PUBLIC_BASE_URL        Endereço HTTPS do painel, como https://seu-painel.vercel.app
-   DISCORD_CLIENT_ID      Application ID da aplicação do Discord.
-   DISCORD_CLIENT_SECRET  Client Secret da seção OAuth2.
-   DASHBOARD_OWNER_ID     ID da sua conta do Discord. Use "Copiar ID do usuário".
-   BOT_MONGO_URI          URL completa do MongoDB usada pelo bot.
-   BOT_MONGO_DATABASE     Nome do banco usado pelo bot.
-   SESSION_SECRET         Chave aleatória usada para assinar as sessões do painel.
+   https://seu-site.vercel.app/auth/discord/callback
 
-   Confira a configuração do MongoDB no app do bot na Square Cloud ou em
-   configs/config_mongo.json. Use BOT_ID se o login estiver em uma aplicação
-   do Discord diferente da aplicação do bot.
+3. Preencha Settings → Environment Variables → Production na Vercel
 
-   Para gerar o valor de SESSION_SECRET, rode no PowerShell e copie a saída
-   diretamente para as variáveis da Vercel.
+   PUBLIC_BASE_URL             URL do site em HTTPS, sem caminho extra
+   DISCORD_CLIENT_ID           Application ID da aplicação usada no login
+   DISCORD_CLIENT_SECRET       Client Secret da mesma aplicação em OAuth2
+   DASHBOARD_OWNER_ID          ID da sua conta pessoal do Discord
+   BOT_MONGO_URI               URL do MongoDB acessível pela Vercel
+   BOT_MONGO_DATABASE          Nome do banco que o painel usa
+   SESSION_SECRET              Chave aleatória para a sessão
+   BOT_ID                      ID do bot cujo status você edita, se for outra aplicação
+   MIGRATION_BOT_TOKEN         Token do bot da aplicação de DISCORD_CLIENT_ID
+   MIGRATION_SOURCE_ID         ID do servidor de origem
+   MIGRATION_SOURCE_NAME       Nome público do servidor de origem
+   MIGRATION_DESTINATION_ID    ID do servidor de destino
+   MIGRATION_DESTINATION_NAME  Nome público do servidor de destino
+   MIGRATION_ENCRYPTION_KEY    Chave separada para criptografar as autorizações
+
+   Gere uma chave nova para MIGRATION_ENCRYPTION_KEY. Se o painel ainda
+   não tem SESSION_SECRET, gere outra chave para essa variável.
+   Rode o bloco uma vez para cada chave no PowerShell.
 
    $bytes = New-Object byte[] 32
    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
    $rng.GetBytes($bytes)
-   [Convert]::ToBase64String($bytes)
+   [Convert]::ToBase64String($bytes).Replace('+', '-').Replace('/', '_')
    $rng.Dispose()
 
-4. Na Vercel, abra Deployments. No menu do deploy de produção, clique em
-   Redeploy para aplicar as variáveis. Abra o endereço de produção, entre
-   com a conta do dono e teste salvar uma frase. A mensagem no Discord
-   pode levar cerca de um minuto para mudar.
+   Cole as chaves e credenciais diretamente nas variáveis da Vercel.
+   O usuário do MongoDB precisa poder ler e gravar a coleção
+   discord_migration_consents e criar seu índice de expiração.
+   Se o painel atual já usa o MongoDB do bot, reutilize a configuração
+   para manter o editor de status. A coleção da migração é separada.
 
-5. No app do bot na Square Cloud, abra commands/admin/painel.py. No botão
-   Acesse a Dashboard, coloque o endereço de produção da Vercel em url.
-   Exemplo
+   O site trabalha com uma origem e um destino. Antes de trocar o destino
+   ou a chave, conclua as autorizações pendentes. Elas valem para o
+   destino informado quando o membro autorizou.
 
-   disnake.ui.Button(
-       label="Acesse a Dashboard",
-       style=disnake.ButtonStyle.link,
-       url="https://seu-painel.vercel.app",
-   ),
+4. Teste e compartilhe
 
-   Salve, reinicie o bot e rode /painel no Discord para gerar o botão novo.
+   Na Vercel, abra Deployments e use Redeploy no deploy de produção.
+   Se o painel ainda exibir aviso de configuração, a própria tela de
+   Migração de membros mostrará quais variáveis estão ausentes ou inválidas,
+   sem revelar os valores secretos.
+   Teste com uma conta que está no servidor de origem. Abra /migrar,
+   marque a autorização e finalize no Discord. Abra a página inicial,
+   entre com a conta do dono e clique em Migração de membros.
+   Use Adicionar ao destino e confira se o Discord exibiu a conta lá.
+
+   Compartilhe /migrar no servidor de origem. Quem usava o Auth antigo
+   precisa autorizar pelo site novo. Depois do deploy, você também pode
+   colocar a URL do seu próprio site no botão Acesse a Dashboard,
+   no arquivo commands/admin/painel.py do bot na Square Cloud.
 
 Referências
 https://vercel.com/docs/frameworks/backend/flask
 https://vercel.com/docs/environment-variables
-https://docs.discord.com/developers/topics/oauth2
+https://docs.discord.com/developers/resources/guild#add-guild-member

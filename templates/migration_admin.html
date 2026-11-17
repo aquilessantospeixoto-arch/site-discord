@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Migração de membros{% endblock %}
+{% block main %}
+  <div class="section-heading">
+    <div>
+      <h1>Migração de membros</h1>
+      {% if ready %}<p class="lead">{{ source_name }} → {{ destination_name }}</p>{% endif %}
+    </div>
+    {% if ready %}<a class="button secondary" href="{{ url_for('migration.public_page') }}">Abrir página dos membros</a>{% endif %}
+  </div>
+  {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+  {% if not ready %}
+    <div class="notice" role="alert">
+      <strong>A migração ainda não está pronta. Confira:</strong>
+      <ul>
+        {% for problem in config_problems %}<li>{{ problem }}</li>{% endfor %}
+      </ul>
+      <p>Depois de corrigir as variáveis de Production, faça um novo deploy na Vercel.</p>
+    </div>
+  {% else %}
+    <section class="card member-card">
+      <h2>Membros que autorizaram a entrada</h2>
+      {% if entries %}
+        <ul class="member-list">
+          {% for member in entries %}
+            <li>
+              <div class="member-details">
+                <strong>{{ member.name }}</strong>
+                <small>{{ member.user_id }} · Até {{ member.expires_at.strftime('%d/%m às %H:%M UTC') }}</small>
+              </div>
+              <form method="post" action="{{ url_for('migration.add_member') }}">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="user_id" value="{{ member.user_id }}">
+                <button class="primary" type="submit">Adicionar ao destino</button>
+              </form>
+            </li>
+          {% endfor %}
+        </ul>
+      {% elif not notice %}
+        <p>Envie a página de migração aos membros do servidor de origem para receber autorizações.</p>
+      {% endif %}
+      {% if cursor or next_cursor %}
+        <nav class="pagination" aria-label="Páginas de membros">
+          {% if cursor %}<a class="button secondary" href="{{ url_for('migration.admin_page') }}">Primeira página</a>{% endif %}
+          {% if next_cursor %}<a class="button secondary" href="{{ url_for('migration.admin_page', depois=next_cursor) }}">Próxima página</a>{% endif %}
+        </nav>
+      {% endif %}
+    </section>
+  {% endif %}
+  <p class="muted"><a href="{{ url_for('home') }}">Voltar ao painel</a></p>
+{% endblock %}
